@@ -22,8 +22,7 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 *.tfvars.bak
-!example.tfvars
-!example.tfvars.json
+!terraform.tfvars.example
 
 # Override files
 override.tf
@@ -44,3 +43,14 @@ terraform.rc
 
 # Generated connector files
 *connectors_aws_cf-*.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
