@@ -1,3 +1,7 @@
+#---------------------------------------
+# CloudTrail SQS + SNS Integration
+#---------------------------------------
+
 resource "aws_sqs_queue" "cloudtrail_logs" {
   count = local.cloudtrail_enabled ? 1 : 0
   name  = local.sqs_queue_name

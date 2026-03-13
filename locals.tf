@@ -1,8 +1,21 @@
 locals {
   #---------------------------------------
+  # Deployment Mode
+  #---------------------------------------
+  is_organization  = var.deployment_mode == "organization"
+  is_account_group = var.deployment_mode == "account_group"
+  has_stackset     = local.is_organization || local.is_account_group
+  needs_org_api    = local.is_organization
+  ou_name_suffix   = local.is_account_group ? "-${var.organizational_unit_id}" : ""
+
+  #---------------------------------------
   # Module Conditionals
   #---------------------------------------
-  organizational_unit_id = var.organizational_unit_id != "" ? var.organizational_unit_id : data.aws_organizations_organization.current.roots[0].id
+  organizational_unit_id = (
+    var.organizational_unit_id != ""
+      ? var.organizational_unit_id
+      : (local.needs_org_api ? module.org_info[0].root_id : "")
+  )
 
   scanner_enabled = var.enable_modules.dspm || var.enable_modules.registry || var.enable_modules.serverless
 
@@ -17,8 +30,8 @@ locals {
   #---------------------------------------
   template_version = merge(
     {
-      "DISCOVERY-assets_discovery" = var.template_versions.discovery
-      "BASE-base_organization"     = var.template_versions.base
+      "DISCOVERY-assets_discovery"                                                                                                  = var.template_versions.discovery
+      (local.is_organization ? "BASE-base_organization" : local.is_account_group ? "BASE-base_account_group" : "BASE-base_account") = var.template_versions.base
     },
     var.enable_modules.audit_logs ? { "AUDIT_LOGS-audit_logs_byob" = var.template_versions.audit_logs } : {},
     var.enable_modules.ads ? { "ADS-agentless_disk_scanning" = var.template_versions.ads } : {},
@@ -35,62 +48,62 @@ locals {
 
   platform_role_name = coalesce(
     var.resource_names.platform_role,
-    "CortexPlatformRole-${var.resource_suffix}"
+    "CortexPlatformRole-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   scanner_role_name = coalesce(
     var.resource_names.scanner_role,
-    "CortexPlatformScannerRole-${var.resource_suffix}"
+    "CortexPlatformScannerRole-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   cloudtrail_role_name = coalesce(
     var.resource_names.cloudtrail_role,
-    "cortex-logs-ingestion-access-${var.resource_suffix}"
+    "cortex-logs-ingestion-access-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   sqs_queue_name = coalesce(
     var.resource_names.sqs_queue,
-    "cortex-ct-logs-queue-byob-${data.aws_caller_identity.current.account_id}-${var.resource_suffix}"
+    "cortex-ct-logs-queue-byob-${data.aws_caller_identity.current.account_id}-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   ads_policy_name = coalesce(
     var.resource_names.ads_policy,
-    "Cortex-ADS-Policy-${var.resource_suffix}"
+    "Cortex-ADS-Policy-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   discovery_policy_name = coalesce(
     var.resource_names.discovery_policy,
-    "Cortex-DISCOVERY-Policy-${var.resource_suffix}"
+    "Cortex-DISCOVERY-Policy-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   automation_policy_name = coalesce(
     var.resource_names.automation_policy,
-    "Cortex-Automation-Policy-${var.resource_suffix}"
+    "Cortex-Automation-Policy-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   dspm_policy_name = coalesce(
     var.resource_names.dspm_policy,
-    "Cortex-DSPM-Policy-${var.resource_suffix}"
+    "Cortex-DSPM-Policy-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   lambda_role_name = coalesce(
     var.resource_names.lambda_role,
-    "CortexLambdaExecutionRole-${var.resource_suffix}"
+    "CortexLambdaExecutionRole-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   lambda_function_name = coalesce(
     var.resource_names.lambda_function,
-    "CortexConnectorRegistration-${var.resource_suffix}"
+    "CortexConnectorRegistration-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   lambda_sg_name = coalesce(
     var.resource_names.lambda_sg,
-    "CortexLambdaSG-${var.resource_suffix}"
+    "CortexLambdaSG-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   stack_set_name = coalesce(
     var.resource_names.stack_set,
-    "CortexPlatformRoleStackSetMember-${var.resource_suffix}"
+    "CortexPlatformRoleStackSetMember-${var.resource_suffix}${local.ou_name_suffix}"
   )
 
   #---------------------------------------
@@ -102,16 +115,17 @@ locals {
   #---------------------------------------
   # Account Filtering
   #---------------------------------------
-  account_filter_type = (
+  account_filter_type = local.has_stackset ? (
     length(var.include_account_ids) > 0 ? "INTERSECTION" :
     length(var.exclude_account_ids) > 0 ? "DIFFERENCE" :
     null
-  )
-  account_filter_ids = (
+  ) : null
+
+  account_filter_ids = local.has_stackset ? (
     length(var.include_account_ids) > 0 ? var.include_account_ids :
     length(var.exclude_account_ids) > 0 ? var.exclude_account_ids :
     null
-  )
+  ) : null
 
   #---------------------------------------
   # Tags

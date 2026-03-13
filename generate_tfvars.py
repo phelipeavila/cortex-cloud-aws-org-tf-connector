@@ -20,6 +20,8 @@ import yaml
 KNOWN_VERSIONS = {
     "DISCOVERY-assets_discovery": "1.0.5",
     "BASE-base_organization": "1.4.0",
+    "BASE-base_account_group": "1.4.0",
+    "BASE-base_account": "1.3.0",
     "AUDIT_LOGS-audit_logs_byob": "1.1.0",
     "ADS-agentless_disk_scanning": "1.1.5",
     "DSPM-data_security_posture_management": "1.2.0",
@@ -32,6 +34,8 @@ KNOWN_VERSIONS = {
 CF_KEY_TO_TF_KEY = {
     "DISCOVERY-assets_discovery": "discovery",
     "BASE-base_organization": "base",
+    "BASE-base_account_group": "base",
+    "BASE-base_account": "base",
     "AUDIT_LOGS-audit_logs_byob": "audit_logs",
     "ADS-agentless_disk_scanning": "ads",
     "DSPM-data_security_posture_management": "dspm",
@@ -95,6 +99,23 @@ def _account_id_from_arn(arn):
     """
     m = re.search(r":iam::(\d+):", str(arn))
     return m.group(1) if m else ""
+
+def detect_deployment_mode(cf):
+    """Detect deployment mode from the CF template's BASE key in TemplateVersion."""
+    custom_res = cf.get("Resources", {}).get("MyCustomResource", {}).get("Properties", {})
+    cf_versions = custom_res.get("TemplateVersion", {})
+    if "BASE-base_account" in cf_versions:
+        return "account"
+    if "BASE-base_account_group" in cf_versions:
+        return "account_group"
+    if "BASE-base_organization" in cf_versions:
+        return "organization"
+    print(
+        "Error: Could not detect deployment mode from TemplateVersion.\n"
+        "Expected one of: BASE-base_account, BASE-base_account_group, BASE-base_organization",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Core logic
@@ -218,6 +239,8 @@ def extract_values(cf):
         else:
             template_versions[tf_key] = KNOWN_VERSIONS.get(cf_key, "0.0.0")
 
+    deployment_mode = detect_deployment_mode(cf)
+
     return {
         "infra": infra,
         "resource_suffix": resource_suffix,
@@ -226,6 +249,7 @@ def extract_values(cf):
         "upload_output_url": upload_output_url,
         "template_versions": template_versions,
         "cf_versions": cf_versions,
+        "deployment_mode": deployment_mode,
     }
 
 
@@ -233,13 +257,27 @@ def generate_tfvars(source_filename, values, modules):
     """Build the terraform.tfvars content string."""
     infra = values["infra"]
     tv = values["template_versions"]
+    mode = values["deployment_mode"]
+
+    mode_labels = {
+        "organization": "Organization Connector",
+        "account_group": "Account Group (OU) Connector",
+        "account": "Account Connector",
+    }
 
     lines = []
 
     lines.append(f'#{"=" * 79}')
-    lines.append("# Cortex XDR Organization Connector - Terraform Variables")
+    lines.append(f"# Cortex XDR {mode_labels[mode]} - Terraform Variables")
     lines.append(f"# Generated from: {source_filename}")
     lines.append(f'#{"=" * 79}')
+    lines.append("")
+
+    # --- deployment mode ---
+    lines.append("#---------------------------------------")
+    lines.append("# Deployment Mode")
+    lines.append("#---------------------------------------")
+    lines.append(f'deployment_mode = "{mode}"')
     lines.append("")
 
     # --- PA infrastructure ---
@@ -316,25 +354,43 @@ def generate_tfvars(source_filename, values, modules):
         lines.append("# Values requiring user input")
         lines.append("#---------------------------------------")
         lines.append("")
-        lines.append("# TODO: Add your CloudTrail S3 bucket name (Management account)")
+        if mode == "account":
+            ct_hint = "(this account)"
+        else:
+            ct_hint = "(Management account)"
+        lines.append(f"# TODO: Add your CloudTrail S3 bucket name {ct_hint}")
         lines.append('cloudtrail_logs_bucket = ""')
         lines.append("")
-        lines.append("# TODO: Add your CloudTrail SNS topic ARN (Management account)")
+        lines.append(f"# TODO: Add your CloudTrail SNS topic ARN {ct_hint}")
         lines.append('cloudtrail_sns_arn = ""')
 
-    lines.append("")
-    lines.append("#---------------------------------------")
-    lines.append("# Account Filtering (Optional)")
-    lines.append("#---------------------------------------")
-    lines.append("# By default the StackSet deploys to ALL accounts in the target OU.")
-    lines.append("# Use ONE of the lists below to restrict which accounts receive the")
-    lines.append("# deployment. Do NOT set both at the same time.")
-    lines.append("")
-    lines.append('# Deploy ONLY to these accounts:')
-    lines.append('# include_account_ids = ["111111111111", "222222222222", "333333333333"]')
-    lines.append("")
-    lines.append('# Deploy to all accounts EXCEPT these:')
-    lines.append('# exclude_account_ids = ["999999999999", "888888888888"]')
+    # --- Organization / OU Configuration and Account Filtering ---
+    if mode != "account":
+        lines.append("")
+        lines.append("#---------------------------------------")
+        lines.append("# Organization / OU Configuration")
+        lines.append("#---------------------------------------")
+        if mode == "account_group":
+            lines.append("# TODO: Set the target OU ID (must start with 'ou-')")
+            lines.append('organizational_unit_id = ""')
+        else:
+            lines.append("# Target OU for the StackSet deployment.")
+            lines.append("# Leave empty to auto-detect the organization root (requires Organizations API access).")
+            lines.append('# organizational_unit_id = ""')
+
+        lines.append("")
+        lines.append("#---------------------------------------")
+        lines.append("# Account Filtering (Optional)")
+        lines.append("#---------------------------------------")
+        lines.append("# By default the StackSet deploys to ALL accounts in the target OU.")
+        lines.append("# Use ONE of the lists below to restrict which accounts receive the")
+        lines.append("# deployment. Do NOT set both at the same time.")
+        lines.append("")
+        lines.append('# Deploy ONLY to these accounts:')
+        lines.append('# include_account_ids = ["111111111111", "222222222222", "333333333333"]')
+        lines.append("")
+        lines.append('# Deploy to all accounts EXCEPT these:')
+        lines.append('# exclude_account_ids = ["999999999999", "888888888888"]')
 
     return "\n".join(lines) + "\n"
 
@@ -373,6 +429,9 @@ def main():
     # --- extract & detect ---
     values = extract_values(cf)
     modules = detect_modules(cf)
+
+    mode = values["deployment_mode"]
+    print(f"Detected deployment mode: {mode}", file=sys.stderr)
 
     source_name = os.path.basename(args.cf_template)
     content = generate_tfvars(source_name, values, modules)

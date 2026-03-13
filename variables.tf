@@ -1,4 +1,23 @@
 #---------------------------------------
+# Deployment Mode
+#---------------------------------------
+
+variable "deployment_mode" {
+  description = <<-EOT
+    Deployment scope:
+      "organization"  - Org root or OU with Organizations API access. Uses StackSet. Auto-detects org root if organizational_unit_id is empty.
+      "account_group" - Specific OU without Organizations API. Uses StackSet. Appends OU ID to resource names.
+      "account"       - Single account. No StackSet, no Organizations API.
+  EOT
+  type        = string
+  default     = "organization"
+  validation {
+    condition     = contains(["organization", "account_group", "account"], var.deployment_mode)
+    error_message = "deployment_mode must be 'organization', 'account_group', or 'account'."
+  }
+}
+
+#---------------------------------------
 # Palo Alto Networks Infrastructure
 #---------------------------------------
 
@@ -272,5 +291,23 @@ check "audit_logs_requirements" {
   assert {
     condition     = !var.enable_modules.audit_logs || var.audience != ""
     error_message = "audience is required when enable_modules.audit_logs is true."
+  }
+}
+
+check "account_group_requires_ou_id" {
+  assert {
+    condition     = var.deployment_mode != "account_group" || can(regex("^ou-", var.organizational_unit_id))
+    error_message = "organizational_unit_id is required and must start with 'ou-' when deployment_mode is 'account_group'."
+  }
+}
+
+check "account_mode_no_stackset_vars" {
+  assert {
+    condition = var.deployment_mode != "account" || (
+      var.organizational_unit_id == "" &&
+      length(var.include_account_ids) == 0 &&
+      length(var.exclude_account_ids) == 0
+    )
+    error_message = "organizational_unit_id, include_account_ids, and exclude_account_ids are not applicable when deployment_mode is 'account'."
   }
 }

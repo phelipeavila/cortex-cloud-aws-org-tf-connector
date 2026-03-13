@@ -24,6 +24,11 @@ output "registration_result" {
 }
 
 output "stack_set_id" {
-  description = "ID of the CloudFormation StackSet for member accounts"
-  value       = aws_cloudformation_stack_set.cortex_member_roles.stack_set_id
+  description = "ID of the CloudFormation StackSet for member accounts (null in account mode)"
+  value       = local.has_stackset ? aws_cloudformation_stack_set.cortex_member_roles[0].stack_set_id : null
+}
+
+output "deployment_mode" {
+  description = "The deployment mode used (organization, account_group, or account)"
+  value       = var.deployment_mode
 }

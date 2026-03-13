@@ -23,6 +23,7 @@ resource "aws_iam_role_policy_attachment" "lambda_execution_basic" {
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_execution_orgs" {
+  count      = local.needs_org_api ? 1 : 0
   role       = aws_iam_role.lambda_execution.name
   policy_arn = "arn:aws:iam::aws:policy/AWSOrganizationsReadOnlyAccess"
 }
@@ -103,7 +104,9 @@ resource "aws_lambda_invocation" "register_connector" {
     UploadOutputUrl = var.upload_output_url
     TemplateVersion = local.template_version
     ConnectorId     = var.connector_id
-    OrganizationId  = local.organizational_unit_id
+    OrganizationId  = local.is_organization ? local.organizational_unit_id : ""
+    AccountGroup    = local.is_account_group ? var.organizational_unit_id : ""
+    NeedsOrgApi     = local.needs_org_api
     ModulePermissionScope = merge(
       {
         CortexCOMMONPolicyArns = [
@@ -144,6 +147,7 @@ resource "aws_lambda_invocation" "register_connector" {
     aws_iam_role.cloudtrail_reader,
     aws_sqs_queue.cloudtrail_logs,
     aws_sns_topic_subscription.cloudtrail_to_sqs,
-    aws_iam_role_policy_attachment.lambda_vpc_access
+    aws_iam_role_policy_attachment.lambda_vpc_access,
+    module.org_info
   ]
 }

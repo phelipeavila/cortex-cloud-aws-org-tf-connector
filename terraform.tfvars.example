@@ -1,6 +1,20 @@
 #===============================================================================
-# Cortex XDR Organization Connector - Terraform Variables Example
+# Cortex Cloud AWS Connector - Terraform Variables Example
 #===============================================================================
+
+#---------------------------------------
+# Deployment Mode (Required)
+#---------------------------------------
+# Controls the deployment scope. Auto-detected by generate_tfvars.py.
+#
+#   "organization"  - Org root or OU. Uses StackSet + Organizations API.
+#                     Auto-detects org root if organizational_unit_id is empty.
+#   "account_group" - Specific OU without Organizations API. Uses StackSet.
+#                     Appends the OU ID to all resource names for uniqueness.
+#                     Requires organizational_unit_id (must start with 'ou-').
+#   "account"       - Single account. No StackSet, no Organizations API.
+#                     Account filtering variables are not applicable.
+deployment_mode = "organization"
 
 #---------------------------------------
 # Palo Alto Networks Infrastructure (Required)
@@ -59,10 +73,11 @@ template_versions = {
 # Core Cortex Parameters (Required)
 #---------------------------------------
 
-# Optional: Organizational Unit ID to deploy the StackSet to.
-# Auto-detected from AWS Organizations when omitted (defaults to the org root).
-# Override to target a specific OU instead of the entire organization.
-# organizational_unit_id = "r-abc1234"
+# Organizational Unit ID for StackSet deployment (organization & account_group modes).
+#   organization mode:  Optional. Leave empty to auto-detect the org root.
+#   account_group mode: Required. Must start with "ou-".
+#   account mode:       Not applicable (ignored).
+# organizational_unit_id = "ou-abc1-23456789"
 
 # Required: Unique External ID from Cortex XDR for the IAM trust relationship.
 external_id = "1098fe55-ada3-48ce-98b4-fd135ce3b236"
@@ -130,11 +145,12 @@ upload_output_url = "https://xdr-us-..."
 # }
 
 #---------------------------------------
-# Account Filtering (Optional)
+# Account Filtering (Optional -- organization & account_group modes only)
 #---------------------------------------
 # By default the StackSet deploys to ALL accounts in the target OU.
 # Use ONE of the lists below to restrict which member accounts receive
 # the deployment. Do NOT set both at the same time.
+# Not applicable in "account" mode.
 
 # Deploy ONLY to these accounts:
 # include_account_ids = ["111111111111", "222222222222", "333333333333"]

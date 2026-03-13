@@ -15,4 +15,8 @@ terraform {
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 data "aws_region" "current" {}
-data "aws_organizations_organization" "current" {}
+
+module "org_info" {
+  count  = local.needs_org_api && var.organizational_unit_id == "" ? 1 : 0
+  source = "./modules/org_info"
+}
